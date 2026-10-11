@@ -59,7 +59,7 @@ class Song {
 class MusicApi {
   MusicApi._();
 
-  static const _base = 'https://www.yinyueku.cn/api.php';
+  static const _base = 'http://www.yinyueku.cn/api.php';
 
   /// 搜索歌曲
   static Future<List<Song>> search(String keyword) async {
