@@ -1,0 +1,23 @@
+# 构建产物
+build/
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+
+# IDE
+.idea/
+*.iml
+.vscode/
+
+# 系统
+.DS_Store
+Thumbs.db
+
+# 生成的平台工程（CI 用 flutter create 生成，不入库）
+android/
+ios/
+web/
+linux/
+macos/
+windows/

@@ -1,0 +1,22 @@
+name: music_player
+description: "简洁美观的联网音乐播放器：歌曲搜索、热门推荐、收藏、自制歌单。"
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.3.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  http: ^1.2.0
+  shared_preferences: ^2.2.2
+  just_audio: ^0.9.39
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.0
+
+flutter:
+  uses-material-design: true

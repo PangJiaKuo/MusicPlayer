@@ -1,0 +1,54 @@
+name: Build Android APK
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build release APK
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 安装 Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: 安装依赖
+        run: flutter pub get
+
+      # 仓库内不提交 android/（体积大且易与 Flutter 版本错配），
+      # 由 CI 用 flutter create 按当前 Flutter 版本生成并自动带上 Gradle wrapper。
+      - name: 生成 Android 工程与 Gradle wrapper
+        run: flutter create . --platforms android
+
+      # Flutter 默认只在 debug/profile 清单里带联网权限，release 包必须手动补。
+      - name: 补 INTERNET 权限（release 包联网必需）
+        run: |
+          python3 - <<'PY'
+          p = 'android/app/src/main/AndroidManifest.xml'
+          s = open(p, encoding='utf-8').read()
+          if 'android.permission.INTERNET' not in s:
+              s = s.replace('<application',
+                            '<uses-permission android:name="android.permission.INTERNET"/>\n    <application', 1)
+              open(p, 'w', encoding='utf-8').write(s)
+          PY
+
+      - name: 静态分析（仅提示，不阻断构建）
+        run: flutter analyze
+        continue-on-error: true
+
+      - name: 构建 release APK（分 ABI）
+        run: flutter build apk --release --split-per-abi
+
+      - name: 上传 APK 产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: music-player-apk
+          path: build/app/outputs/flutter-apk/*.apk
+          if-no-files-found: error
