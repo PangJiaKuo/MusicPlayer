@@ -27,8 +27,9 @@ jobs:
       - name: 生成 Android 工程与 Gradle wrapper
         run: flutter create . --platforms android
 
-      # Flutter 默认只在 debug/profile 清单里带联网权限，release 包必须手动补。
-      - name: 补 INTERNET 权限（release 包联网必需）
+      # Flutter 默认只在 debug/profile 清单里带联网权限，release 包必须手动补 INTERNET；
+      # Android 9+ 默认禁止明文 http 播放流，需放行 usesCleartextTraffic 才能播第三方 http 音频地址。
+      - name: 补网络权限（INTERNET + 明文流量许可）
         run: |
           python3 - <<'PY'
           p = 'android/app/src/main/AndroidManifest.xml'
@@ -36,7 +37,9 @@ jobs:
           if 'android.permission.INTERNET' not in s:
               s = s.replace('<application',
                             '<uses-permission android:name="android.permission.INTERNET"/>\n    <application', 1)
-              open(p, 'w', encoding='utf-8').write(s)
+          if 'usesCleartextTraffic' not in s:
+              s = s.replace('<application', '<application\n        android:usesCleartextTraffic="true"', 1)
+          open(p, 'w', encoding='utf-8').write(s)
           PY
 
       - name: 静态分析（仅提示，不阻断构建）
