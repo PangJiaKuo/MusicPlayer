@@ -40,7 +40,7 @@ jobs:
           PY
 
       - name: 静态分析（仅提示，不阻断构建）
-        run: flutter analyze
+        run: flutter analyze --no-fatal-warnings --no-fatal-infos
         continue-on-error: true
 
       - name: 构建 release APK（分 ABI）

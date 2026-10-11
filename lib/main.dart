@@ -272,12 +272,14 @@ class SongTile extends StatelessWidget {
   final Song song;
   final VoidCallback? onTap;
   final bool showFavorite;
+  final Widget? trailing;
 
   const SongTile({
     super.key,
     required this.song,
     this.onTap,
     this.showFavorite = true,
+    this.trailing,
   });
 
   @override
@@ -298,22 +300,23 @@ class SongTile extends StatelessWidget {
         style: TextStyle(fontSize: 12, color: Colors.grey[600]),
       ),
       onTap: onTap ?? () => AppState.i.playSongs([song], 0),
-      trailing: showFavorite
-          ? ListenableBuilder(
-              listenable: AppState.i,
-              builder: (ctx, _) {
-                final fav = AppState.i.isFavorite(song);
-                return IconButton(
-                  tooltip: fav ? '取消收藏' : '收藏',
-                  onPressed: () => AppState.i.toggleFavorite(song),
-                  icon: Icon(
-                    fav ? Icons.favorite : Icons.favorite_border,
-                    color: fav ? const Color(0xFFE94B5F) : Colors.grey,
-                  ),
-                );
-              },
-            )
-          : null,
+      trailing: trailing ??
+          (showFavorite
+              ? ListenableBuilder(
+                  listenable: AppState.i,
+                  builder: (ctx, _) {
+                    final fav = AppState.i.isFavorite(song);
+                    return IconButton(
+                      tooltip: fav ? '取消收藏' : '收藏',
+                      onPressed: () => AppState.i.toggleFavorite(song),
+                      icon: Icon(
+                        fav ? Icons.favorite : Icons.favorite_border,
+                        color: fav ? const Color(0xFFE94B5F) : Colors.grey,
+                      ),
+                    );
+                  },
+                )
+              : null),
     );
   }
 }
