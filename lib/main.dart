@@ -304,6 +304,13 @@ class AlbumArt extends StatelessWidget {
           end: Alignment.bottomRight,
           colors: palette,
         ),
+        boxShadow: [
+          BoxShadow(
+            color: palette[0].withValues(alpha: 0.35),
+            blurRadius: 16,
+            offset: const Offset(0, 8),
+          ),
+        ],
       ),
       child: Icon(
         Icons.music_note,
@@ -488,15 +495,29 @@ class _DiscoverPageState extends State<DiscoverPage> {
           Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-            child: Text(
-              '音乐播放器',
-              style: TextStyle(
-                fontSize: 24,
-                fontWeight: FontWeight.w800,
-                color: const Color(0xFF1B2A41),
+          Container(
+            margin: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(20),
+              gradient: const LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [Color(0xFF5B6CFF), Color(0xFF8E6CFF)],
               ),
+              boxShadow: const [
+                BoxShadow(color: Color(0x335B6CFF), blurRadius: 18, offset: Offset(0, 8)),
+              ],
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: const [
+                Text('音乐播放器',
+                    style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: Colors.white)),
+                SizedBox(height: 4),
+                Text('发现好音乐，从这里开始',
+                    style: TextStyle(fontSize: 13, color: Color(0xFFE3E7FF))),
+              ],
             ),
           ),
           CompositedTransformTarget(
@@ -919,9 +940,17 @@ class _PlayerPageState extends State<PlayerPage> {
           }
           final playing = AppState.i.isPlaying;
           final fav = AppState.i.isFavorite(s);
-          return Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 24),
-            child: Column(
+          return Container(
+            decoration: const BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [Color(0xFFE7EBFF), Color(0xFFF4F6FB)],
+              ),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 24),
+              child: Column(
               children: [
                 const SizedBox(height: 12),
                 GestureDetector(
@@ -1009,7 +1038,8 @@ class _PlayerPageState extends State<PlayerPage> {
                     ),
                   ],
                 ),
-              ],
+                ],
+              ),
             ),
           );
         },
@@ -1213,6 +1243,11 @@ class MiniPlayer extends StatelessWidget {
         if (s == null) return const SizedBox.shrink();
         return Material(
           color: Colors.white,
+          shape: const RoundedRectangleBorder(
+            borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
+          ),
+          elevation: 8,
+          shadowColor: Color(0x33000000),
           child: InkWell(
             onTap: () => Navigator.push(
               context,
