@@ -71,15 +71,20 @@ class AppState extends ChangeNotifier {
   String lyricsSongKey = '';
   bool lyricsLoading = false;
 
+  bool _playing = false;
   bool get hasCurrent => index >= 0 && index < queue.length;
   Song? get current => hasCurrent ? queue[index] : null;
-  bool get isPlaying => player.playing;
+  bool get isPlaying => _playing;
   Duration? get position => player.position;
   Duration? get duration => player.duration;
 
   Future<void> _init() async {
     player.processingStateStream.listen((st) {
       if (st == ProcessingState.completed) _onCompleted();
+    });
+    player.playingStream.listen((p) {
+      _playing = p;
+      notifyListeners();
     });
     try {
       final prefs = await SharedPreferences.getInstance();
