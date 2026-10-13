@@ -50,6 +50,8 @@ class Playlist {
       );
 }
 
+enum PlayMode { sequence, repeatOne, shuffle, once }
+
 // ===================== 全局状态（收藏/歌单/播放队列） =====================
 class AppState extends ChangeNotifier {
   AppState._() {
@@ -76,6 +78,9 @@ class AppState extends ChangeNotifier {
   Duration? get duration => player.duration;
 
   Future<void> _init() async {
+    player.processingStateStream.listen((st) {
+      if (st == ProcessingState.completed) _onCompleted();
+    });
     try {
       final prefs = await SharedPreferences.getInstance();
       final fav = prefs.getString('favorites');
@@ -170,15 +175,75 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  PlayMode _mode = PlayMode.sequence;
+  PlayMode get mode => _mode;
+  String get modeLabel => switch (_mode) {
+        PlayMode.sequence => '列表循环',
+        PlayMode.repeatOne => '单曲循环',
+        PlayMode.shuffle => '随机播放',
+        PlayMode.once => '播放一遍',
+      };
+  IconData get modeIcon => switch (_mode) {
+        PlayMode.sequence => Icons.repeat,
+        PlayMode.repeatOne => Icons.repeat_one_on,
+        PlayMode.shuffle => Icons.shuffle,
+        PlayMode.once => Icons.playlist_play,
+      };
+
+  void cycleMode() {
+    _mode = switch (_mode) {
+      PlayMode.sequence => PlayMode.repeatOne,
+      PlayMode.repeatOne => PlayMode.shuffle,
+      PlayMode.shuffle => PlayMode.once,
+      PlayMode.once => PlayMode.sequence,
+    };
+    notifyListeners();
+  }
+
+  int _randomIndex() {
+    if (queue.length <= 1) return index;
+    var r = DateTime.now().millisecond % queue.length;
+    if (r == index) r = (r + 1) % queue.length;
+    return r;
+  }
+
   Future<void> next() async {
-    if (index < queue.length - 1) await _playAt(index + 1);
+    if (queue.isEmpty) return;
+    if (_mode == PlayMode.shuffle) {
+      await _playAt(_randomIndex());
+      return;
+    }
+    if (index < queue.length - 1) {
+      await _playAt(index + 1);
+    } else if (_mode == PlayMode.sequence) {
+      await _playAt(0);
+    }
   }
 
   Future<void> prev() async {
+    if (queue.isEmpty) return;
+    if (_mode == PlayMode.shuffle) {
+      await _playAt(_randomIndex());
+      return;
+    }
     if (index > 0) {
       await _playAt(index - 1);
     } else {
       await player.seek(Duration.zero);
+    }
+  }
+
+  Future<void> _onCompleted() async {
+    if (!hasCurrent) return;
+    switch (_mode) {
+      case PlayMode.repeatOne:
+        await _playAt(index);
+      case PlayMode.shuffle:
+        await _playAt(_randomIndex());
+      case PlayMode.sequence:
+        await _playAt(index < queue.length - 1 ? index + 1 : 0);
+      case PlayMode.once:
+        if (index < queue.length - 1) await _playAt(index + 1);
     }
   }
 
@@ -589,8 +654,11 @@ class _DiscoverPageState extends State<DiscoverPage> {
                         : ListView.builder(
                             padding: const EdgeInsets.only(bottom: 8),
                             itemCount: _songs.length,
-                            itemBuilder: (ctx, i) =>
-                                SongTile(song: _songs[i]),
+                            itemBuilder: (ctx, i) => SongTile(
+                                  song: _songs[i],
+                                  onTap: () =>
+                                      AppState.i.playSongs(_songs, i),
+                                ),
                           ),
           ),
             ],
@@ -810,21 +878,48 @@ class PlaylistDetailPage extends StatelessWidget {
         listenable: AppState.i,
         builder: (ctx, _) {
           if (pl.songs.isEmpty) {
-            return const Center(
-              child: Text('歌单还是空的', style: TextStyle(color: Color(0xFF8A98AC))),
+            return Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text('歌单还是空的',
+                      style: TextStyle(color: Color(0xFF8A98AC))),
+                  const SizedBox(height: 16),
+                  FilledButton.icon(
+                    onPressed: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                          builder: (_) => AddSongsToPlaylistPage(pl: pl)),
+                    ),
+                    icon: const Icon(Icons.add),
+                    label: const Text('添加歌曲'),
+                  ),
+                ],
+              ),
             );
           }
           return Column(
             children: [
               Padding(
                 padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
-                child: Align(
-                  alignment: Alignment.centerLeft,
-                  child: FilledButton.tonalIcon(
-                    onPressed: () => AppState.i.playPlaylist(pl, 0),
-                    icon: const Icon(Icons.play_arrow),
-                    label: Text('播放全部（${pl.songs.length} 首）'),
-                  ),
+                child: Row(
+                  children: [
+                    FilledButton.tonalIcon(
+                      onPressed: () => AppState.i.playPlaylist(pl, 0),
+                      icon: const Icon(Icons.play_arrow),
+                      label: Text('播放全部（${pl.songs.length} 首）'),
+                    ),
+                    const SizedBox(width: 12),
+                    FilledButton.tonalIcon(
+                      onPressed: () => Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                            builder: (_) => AddSongsToPlaylistPage(pl: pl)),
+                      ),
+                      icon: const Icon(Icons.add),
+                      label: const Text('添加歌曲'),
+                    ),
+                  ],
                 ),
               ),
               Expanded(
@@ -849,6 +944,130 @@ class PlaylistDetailPage extends StatelessWidget {
             ],
           );
         },
+      ),
+    );
+  }
+}
+
+// ===================== 往歌单添加歌曲（收藏选择 / 在线搜索） =====================
+class AddSongsToPlaylistPage extends StatefulWidget {
+  final Playlist pl;
+  const AddSongsToPlaylistPage({super.key, required this.pl});
+
+  @override
+  State<AddSongsToPlaylistPage> createState() => _AddSongsToPlaylistPageState();
+}
+
+class _AddSongsToPlaylistPageState extends State<AddSongsToPlaylistPage> {
+  List<Song> _results = [];
+  bool _searching = false;
+  String _kw = '';
+
+  Future<void> _search(String kw) async {
+    _kw = kw.trim();
+    if (_kw.isEmpty) {
+      setState(() => _results = []);
+      return;
+    }
+    setState(() => _searching = true);
+    try {
+      final r = await MusicApi.search(_kw);
+      if (!mounted) return;
+      setState(() {
+        _results = r;
+        _searching = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _searching = false);
+    }
+  }
+
+  Widget _addTile(Song s) {
+    final inPl = widget.pl.songs.any((x) => x.key == s.key);
+    return ListTile(
+      leading: AlbumArt(song: s, size: 44),
+      title: Text(s.name, maxLines: 1, overflow: TextOverflow.ellipsis),
+      subtitle: Text(s.artist,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(fontSize: 12)),
+      trailing: inPl
+          ? const Icon(Icons.check_circle, color: Color(0xFF5BC0A6))
+          : IconButton(
+              icon: const Icon(Icons.add_circle_outline,
+                  color: Color(0xFF3F7CFF)),
+              onPressed: () async {
+                await AppState.i.addToPlaylist(widget.pl, s);
+                if (!mounted) return;
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('已添加「${s.name}」')),
+                );
+                setState(() {});
+              },
+            ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final favs = AppState.i.favorites;
+    return Scaffold(
+      appBar: AppBar(title: Text('添加到「${widget.pl.name}」')),
+      body: ListView(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+            child: TextField(
+              textInputAction: TextInputAction.search,
+              onSubmitted: _search,
+              decoration: const InputDecoration(
+                hintText: '搜索歌曲 / 歌手',
+                prefixIcon: Icon(Icons.search),
+                filled: true,
+                fillColor: Colors.white,
+                isDense: true,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.all(Radius.circular(24)),
+                  borderSide: BorderSide.none,
+                ),
+              ),
+            ),
+          ),
+          if (_searching)
+            const Padding(
+              padding: EdgeInsets.all(24),
+              child: Center(child: CircularProgressIndicator()),
+            )
+          else if (_kw.isEmpty) ...[
+            const Padding(
+              padding: EdgeInsets.fromLTRB(16, 16, 16, 6),
+              child: Text('从我的收藏选择',
+                  style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
+            ),
+            if (favs.isEmpty)
+              const Padding(
+                padding: EdgeInsets.all(20),
+                child: Text('还没有收藏歌曲',
+                    style: TextStyle(color: Color(0xFF8A98AC))),
+              )
+            else
+              ...favs.map(_addTile),
+          ] else ...[
+            const Padding(
+              padding: EdgeInsets.fromLTRB(16, 16, 16, 6),
+              child: Text('搜索结果',
+                  style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
+            ),
+            if (_results.isEmpty)
+              const Padding(
+                padding: EdgeInsets.all(20),
+                child: Text('没有找到相关歌曲'),
+              )
+            else
+              ..._results.map(_addTile),
+          ],
+        ],
       ),
     );
   }
@@ -899,7 +1118,10 @@ class LibraryPage extends StatelessWidget {
                   child: ListView.builder(
                     padding: const EdgeInsets.only(bottom: 8),
                     itemCount: fav.length,
-                    itemBuilder: (ctx, i) => SongTile(song: fav[i]),
+                    itemBuilder: (ctx, i) => SongTile(
+                          song: fav[i],
+                          onTap: () => AppState.i.playSongs(fav, i),
+                        ),
                   ),
                 ),
             ],
@@ -996,6 +1218,12 @@ class _PlayerPageState extends State<PlayerPage> {
                 const SizedBox(height: 8),
                 Row(
                   children: [
+                    IconButton(
+                      tooltip: AppState.i.modeLabel,
+                      onPressed: () => AppState.i.cycleMode(),
+                      icon: Icon(AppState.i.modeIcon,
+                          size: 22, color: const Color(0xFF3F7CFF)),
+                    ),
                     IconButton(
                       tooltip: '收藏',
                       iconSize: 26,
