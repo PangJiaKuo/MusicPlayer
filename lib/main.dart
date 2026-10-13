@@ -136,26 +136,33 @@ class AppState extends ChangeNotifier {
     await _playAt(start);
   }
 
+  int _loadToken = 0;
+
   Future<void> _playAt(int i) async {
     if (i < 0 || i >= queue.length) {
       index = -1;
       notifyListeners();
       return;
     }
+    final myToken = ++_loadToken;
     index = i;
     notifyListeners();
     final s = queue[i];
     loadLyric(s);
     try {
       final url = await MusicApi.playUrl(s);
+      if (myToken != _loadToken) return; // 已有更新的切歌请求，丢弃本次结果
       if (url == null) throw Exception('获取播放地址失败');
       await player.setAudioSource(AudioSource.uri(Uri.parse(url), headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'
       }));
+      if (myToken != _loadToken) return;
       player.play();
     } catch (e) {
-      // 单曲失败自动尝试下一首
+      if (myToken != _loadToken) return;
+      // 单曲失败自动尝试下一首（仅当仍是最新请求时）
       await Future.delayed(const Duration(milliseconds: 300));
+      if (myToken != _loadToken) return;
       if (i < queue.length - 1) {
         await _playAt(i + 1);
       } else {
@@ -308,7 +315,7 @@ class MusicApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         useMaterial3: true,
-        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF3F7CFF)),
+        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF5B6CFF)),
         scaffoldBackgroundColor: const Color(0xFFF5F7FB),
         appBarTheme: const AppBarTheme(
           backgroundColor: Color(0xFFF5F7FB),
@@ -320,14 +327,29 @@ class MusicApp extends StatelessWidget {
             fontWeight: FontWeight.w700,
           ),
         ),
-        navigationBarTheme: NavigationBarThemeData(
+        navigationBarTheme: const NavigationBarThemeData(
           backgroundColor: Colors.white,
-          indicatorColor: const Color(0xFFE4EEFF),
-          labelTextStyle: WidgetStatePropertyAll(
-            TextStyle(fontSize: 12, color: const Color(0xFF1B2A41)),
-          ),
+          indicatorColor: Color(0xFFE4EEFF),
         ),
       ),
+      darkTheme: ThemeData(
+        useMaterial3: true,
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: const Color(0xFF5B6CFF),
+          brightness: Brightness.dark,
+        ),
+        scaffoldBackgroundColor: const Color(0xFF12141C),
+        appBarTheme: const AppBarTheme(
+          backgroundColor: Color(0xFF12141C),
+          elevation: 0,
+          centerTitle: true,
+        ),
+        navigationBarTheme: const NavigationBarThemeData(
+          backgroundColor: Color(0xFF1B1E2E),
+          indicatorColor: Color(0xFF2A3355),
+        ),
+      ),
+      themeMode: ThemeMode.system,
       home: const HomeShell(),
     );
   }
@@ -600,7 +622,7 @@ class _DiscoverPageState extends State<DiscoverPage> {
                   hintText: '搜索歌曲 / 歌手',
                   prefixIcon: const Icon(Icons.search),
                   filled: true,
-                  fillColor: Colors.white,
+                  fillColor: Theme.of(context).colorScheme.surface,
                   isDense: true,
                   contentPadding:
                       const EdgeInsets.symmetric(vertical: 12, horizontal: 12),
@@ -681,7 +703,7 @@ class _DiscoverPageState extends State<DiscoverPage> {
           width: w,
           constraints: const BoxConstraints(maxHeight: 300),
           decoration: BoxDecoration(
-            color: Colors.white,
+            color: Theme.of(context).colorScheme.surface,
             borderRadius: BorderRadius.circular(14),
             boxShadow: const [
               BoxShadow(color: Color(0x22000000), blurRadius: 16, offset: Offset(0, 6)),
@@ -1021,11 +1043,11 @@ class _AddSongsToPlaylistPageState extends State<AddSongsToPlaylistPage> {
             child: TextField(
               textInputAction: TextInputAction.search,
               onSubmitted: _search,
-              decoration: const InputDecoration(
+              decoration: InputDecoration(
                 hintText: '搜索歌曲 / 歌手',
-                prefixIcon: Icon(Icons.search),
+                prefixIcon: const Icon(Icons.search),
                 filled: true,
-                fillColor: Colors.white,
+                fillColor: Theme.of(context).colorScheme.surface,
                 isDense: true,
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.all(Radius.circular(24)),
@@ -1162,12 +1184,15 @@ class _PlayerPageState extends State<PlayerPage> {
           }
           final playing = AppState.i.isPlaying;
           final fav = AppState.i.isFavorite(s);
+          final isDark = Theme.of(context).brightness == Brightness.dark;
           return Container(
-            decoration: const BoxDecoration(
+            decoration: BoxDecoration(
               gradient: LinearGradient(
                 begin: Alignment.topCenter,
                 end: Alignment.bottomCenter,
-                colors: [Color(0xFFE7EBFF), Color(0xFFF4F6FB)],
+                colors: isDark
+                    ? const [Color(0xFF1F2438), Color(0xFF12141C)]
+                    : const [Color(0xFFE7EBFF), Color(0xFFF4F6FB)],
               ),
             ),
             child: Padding(
@@ -1518,7 +1543,7 @@ class MiniPlayer extends StatelessWidget {
         final s = AppState.i.current;
         if (s == null) return const SizedBox.shrink();
         return Material(
-          color: Colors.white,
+          color: Theme.of(context).colorScheme.surface,
           shape: const RoundedRectangleBorder(
             borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
           ),
