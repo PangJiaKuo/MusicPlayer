@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
@@ -382,16 +383,56 @@ class _DiscoverPageState extends State<DiscoverPage> {
   String? _error;
   bool _isSearch = false;
 
+  // 输入联想
+  final _layerLink = LayerLink();
+  List<Song> _suggestions = [];
+  bool _showSuggestions = false;
+  Timer? _debounce;
+
   @override
   void initState() {
     super.initState();
+    _ctl.addListener(_onTextChanged);
     _loadHot();
   }
 
   @override
   void dispose() {
+    _debounce?.cancel();
+    _ctl.removeListener(_onTextChanged);
     _ctl.dispose();
     super.dispose();
+  }
+
+  void _onTextChanged() {
+    final kw = _ctl.text.trim();
+    _debounce?.cancel();
+    if (kw.isEmpty) {
+      setState(() {
+        _suggestions = [];
+        _showSuggestions = false;
+      });
+      return;
+    }
+    setState(() => _showSuggestions = true);
+    _debounce = Timer(const Duration(milliseconds: 400), () => _fetchSuggestions(kw));
+  }
+
+  Future<void> _fetchSuggestions(String kw) async {
+    try {
+      final r = await MusicApi.search(kw);
+      if (!mounted || !_showSuggestions) return;
+      setState(() => _suggestions = r.take(8).toList());
+    } catch (_) {}
+  }
+
+  void _pickSuggestion(Song s) {
+    setState(() {
+      _ctl.text = s.name;
+      _showSuggestions = false;
+    });
+    _debounce?.cancel();
+    _search(s.name);
   }
 
   Future<void> _loadHot() async {
@@ -442,9 +483,11 @@ class _DiscoverPageState extends State<DiscoverPage> {
   @override
   Widget build(BuildContext context) {
     return SafeArea(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
+      child: Stack(
         children: [
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
             child: Text(
@@ -456,23 +499,29 @@ class _DiscoverPageState extends State<DiscoverPage> {
               ),
             ),
           ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
-            child: TextField(
-              controller: _ctl,
-              textInputAction: TextInputAction.search,
-              onSubmitted: _search,
-              decoration: InputDecoration(
-                hintText: '搜索歌曲 / 歌手',
-                prefixIcon: const Icon(Icons.search),
-                filled: true,
-                fillColor: Colors.white,
-                isDense: true,
-                contentPadding:
-                    const EdgeInsets.symmetric(vertical: 12, horizontal: 12),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(24),
-                  borderSide: BorderSide.none,
+          CompositedTransformTarget(
+            link: _layerLink,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+              child: TextField(
+                controller: _ctl,
+                textInputAction: TextInputAction.search,
+                onSubmitted: (v) {
+                  setState(() => _showSuggestions = false);
+                  _search(v);
+                },
+                decoration: InputDecoration(
+                  hintText: '搜索歌曲 / 歌手',
+                  prefixIcon: const Icon(Icons.search),
+                  filled: true,
+                  fillColor: Colors.white,
+                  isDense: true,
+                  contentPadding:
+                      const EdgeInsets.symmetric(vertical: 12, horizontal: 12),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(24),
+                    borderSide: BorderSide.none,
+                  ),
                 ),
               ),
             ),
@@ -523,7 +572,60 @@ class _DiscoverPageState extends State<DiscoverPage> {
                                 SongTile(song: _songs[i]),
                           ),
           ),
+            ],
+          ),
+          if (_showSuggestions) _buildSuggestions(),
         ],
+      ),
+    );
+  }
+
+  Widget _buildSuggestions() {
+    final w = MediaQuery.of(context).size.width - 32;
+    return CompositedTransformFollower(
+      link: _layerLink,
+      showWhenUnlinked: false,
+      offset: const Offset(0, 50),
+      child: Material(
+        color: Colors.transparent,
+        child: Container(
+          width: w,
+          constraints: const BoxConstraints(maxHeight: 300),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(14),
+            boxShadow: const [
+              BoxShadow(color: Color(0x22000000), blurRadius: 16, offset: Offset(0, 6)),
+            ],
+          ),
+          child: _suggestions.isEmpty
+              ? const Padding(
+                  padding: EdgeInsets.all(16),
+                  child: Text('搜索中…',
+                      style: TextStyle(fontSize: 12, color: Color(0xFF9AA7BD))),
+                )
+              : ListView.separated(
+                  shrinkWrap: true,
+                  padding: const EdgeInsets.symmetric(vertical: 6),
+                  itemCount: _suggestions.length,
+                  separatorBuilder: (_, __) => const Divider(height: 1),
+                  itemBuilder: (ctx, i) {
+                    final sg = _suggestions[i];
+                    return ListTile(
+                      dense: true,
+                      leading: const Icon(Icons.search,
+                          size: 18, color: Color(0xFF9AA7BD)),
+                      title: Text(sg.name,
+                          maxLines: 1, overflow: TextOverflow.ellipsis),
+                      subtitle: Text(sg.artist,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(fontSize: 11)),
+                      onTap: () => _pickSuggestion(sg),
+                    );
+                  },
+                ),
+        ),
       ),
     );
   }
