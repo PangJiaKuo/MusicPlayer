@@ -1217,50 +1217,55 @@ class _PlayerPageState extends State<PlayerPage> {
                 _buildProgress(),
                 const SizedBox(height: 8),
                 Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     IconButton(
-                      tooltip: AppState.i.modeLabel,
-                      onPressed: () => AppState.i.cycleMode(),
-                      icon: Icon(AppState.i.modeIcon,
-                          size: 22, color: const Color(0xFF3F7CFF)),
-                    ),
-                    IconButton(
-                      tooltip: '收藏',
-                      iconSize: 26,
-                      onPressed: () => AppState.i.toggleFavorite(s),
-                      icon: Icon(
-                        fav ? Icons.favorite : Icons.favorite_border,
-                        color: fav ? const Color(0xFFE94B5F) : Colors.grey,
-                      ),
-                    ),
-                    const Spacer(),
-                    IconButton(
                       tooltip: '上一首',
-                      iconSize: 40,
+                      iconSize: 44,
                       onPressed: () => AppState.i.prev(),
                       icon: const Icon(Icons.skip_previous),
                     ),
-                    const SizedBox(width: 8),
+                    const SizedBox(width: 24),
                     IconButton(
                       tooltip: playing ? '暂停' : '播放',
-                      iconSize: 68,
+                      iconSize: 72,
                       onPressed: () => AppState.i.playPause(),
                       icon: Icon(
                         playing ? Icons.pause_circle_filled : Icons.play_circle_filled,
                         color: const Color(0xFF3F7CFF),
                       ),
                     ),
-                    const SizedBox(width: 8),
+                    const SizedBox(width: 24),
                     IconButton(
                       tooltip: '下一首',
-                      iconSize: 40,
+                      iconSize: 44,
                       onPressed: () => AppState.i.next(),
                       icon: const Icon(Icons.skip_next),
                     ),
-                    const Spacer(),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  children: [
+                    IconButton(
+                      tooltip: AppState.i.modeLabel,
+                      onPressed: () => AppState.i.cycleMode(),
+                      icon: Icon(AppState.i.modeIcon,
+                          size: 24, color: const Color(0xFF3F7CFF)),
+                    ),
+                    IconButton(
+                      tooltip: '收藏',
+                      iconSize: 28,
+                      onPressed: () => AppState.i.toggleFavorite(s),
+                      icon: Icon(
+                        fav ? Icons.favorite : Icons.favorite_border,
+                        color: fav ? const Color(0xFFE94B5F) : Colors.grey,
+                      ),
+                    ),
                     IconButton(
                       tooltip: '加入歌单',
-                      iconSize: 26,
+                      iconSize: 28,
                       onPressed: () => _showAddToPlaylist(context, s),
                       icon: const Icon(Icons.playlist_add),
                     ),
@@ -1332,9 +1337,52 @@ class _PlayerPageState extends State<PlayerPage> {
                     style: TextStyle(fontWeight: FontWeight.w700)),
               ),
               if (pls.isEmpty)
-                const Padding(
-                  padding: EdgeInsets.all(20),
-                  child: Text('还没有歌单，请先在「歌单」页创建'),
+                Padding(
+                  padding: const EdgeInsets.all(20),
+                  child: Column(
+                    children: [
+                      const Text('还没有歌单'),
+                      const SizedBox(height: 12),
+                      FilledButton.icon(
+                        onPressed: () async {
+                          final nameCtl = TextEditingController();
+                          final name = await showDialog<String>(
+                            context: ctx,
+                            builder: (dctx) => AlertDialog(
+                              title: const Text('新建歌单'),
+                              content: TextField(
+                                controller: nameCtl,
+                                autofocus: true,
+                                decoration:
+                                    const InputDecoration(hintText: '歌单名称'),
+                              ),
+                              actions: [
+                                TextButton(
+                                    onPressed: () => Navigator.pop(dctx),
+                                    child: const Text('取消')),
+                                FilledButton(
+                                    onPressed: () =>
+                                        Navigator.pop(dctx, nameCtl.text.trim()),
+                                    child: const Text('创建')),
+                              ],
+                            ),
+                          );
+                          if (name == null || name.isEmpty) return;
+                          await AppState.i.createPlaylist(name);
+                          final newPl = AppState.i.playlists.last;
+                          await AppState.i.addToPlaylist(newPl, s);
+                          if (ctx.mounted) Navigator.pop(ctx);
+                          if (context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(content: Text('已创建并加入「$name」')),
+                            );
+                          }
+                        },
+                        icon: const Icon(Icons.add),
+                        label: const Text('新建歌单'),
+                      ),
+                    ],
+                  ),
                 )
               else
                 Flexible(
