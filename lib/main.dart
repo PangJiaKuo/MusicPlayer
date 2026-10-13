@@ -6,6 +6,31 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'api.dart';
 
+// ===================== LRC 歌词解析 =====================
+class LrcLine {
+  final Duration time;
+  final String text;
+  const LrcLine(this.time, this.text);
+}
+
+List<LrcLine> parseLrc(String raw) {
+  final out = <LrcLine>[];
+  final reg = RegExp(r'\[(\d+):(\d+(?:\.\d+)?)\]');
+  for (var line in raw.split('\n')) {
+    final matches = reg.allMatches(line);
+    if (matches.isEmpty) continue;
+    final text = line.replaceAll(reg, '').trim();
+    for (final m in matches) {
+      final min = int.parse(m.group(1)!);
+      final sec = double.parse(m.group(2)!);
+      out.add(LrcLine(
+          Duration(milliseconds: (min * 60000 + sec * 1000).round()), text));
+    }
+  }
+  out.sort((a, b) => a.time.compareTo(b.time));
+  return out;
+}
+
 // ===================== 歌单 =====================
 class Playlist {
   String name;
@@ -37,6 +62,11 @@ class AppState extends ChangeNotifier {
   int index = -1;
   List<Song> favorites = [];
   List<Playlist> playlists = [];
+
+  // 歌词状态
+  List<LrcLine> lyrics = [];
+  String lyricsSongKey = '';
+  bool lyricsLoading = false;
 
   bool get hasCurrent => index >= 0 && index < queue.length;
   Song? get current => hasCurrent ? queue[index] : null;
@@ -109,6 +139,7 @@ class AppState extends ChangeNotifier {
     index = i;
     notifyListeners();
     final s = queue[i];
+    loadLyric(s);
     try {
       final url = await MusicApi.playUrl(s);
       if (url == null) throw Exception('获取播放地址失败');
@@ -151,6 +182,21 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> seek(Duration d) async => player.seek(d);
+
+  // ---- 歌词 ----
+  Future<void> loadLyric(Song s) async {
+    lyricsSongKey = s.key;
+    lyrics = [];
+    lyricsLoading = true;
+    notifyListeners();
+    try {
+      final raw = await MusicApi.lyric(s);
+      if (lyricsSongKey != s.key) return; // 已切歌，丢弃旧结果
+      if (raw != null) lyrics = parseLrc(raw);
+    } catch (_) {}
+    lyricsLoading = false;
+    notifyListeners();
+  }
 
   // ---- 歌单 ----
   Future<void> createPlaylist(String name) async {
@@ -742,8 +788,15 @@ class LibraryPage extends StatelessWidget {
 }
 
 // ===================== 播放页 =====================
-class PlayerPage extends StatelessWidget {
+class PlayerPage extends StatefulWidget {
   const PlayerPage({super.key});
+
+  @override
+  State<PlayerPage> createState() => _PlayerPageState();
+}
+
+class _PlayerPageState extends State<PlayerPage> {
+  bool _showLyrics = false;
 
   String _fmt(Duration d) {
     final m = d.inMinutes.toString().padLeft(2, '0');
@@ -769,8 +822,26 @@ class PlayerPage extends StatelessWidget {
             child: Column(
               children: [
                 const SizedBox(height: 12),
-                AlbumArt(song: s, size: 260, radius: 20),
-                const SizedBox(height: 32),
+                GestureDetector(
+                  onTap: () => setState(() => _showLyrics = !_showLyrics),
+                  child: SizedBox(
+                    height: 260,
+                    child: _showLyrics
+                        ? _LyricView(
+                            lines: AppState.i.lyrics,
+                            loading: AppState.i.lyricsLoading,
+                          )
+                        : Center(
+                            child: AlbumArt(song: s, size: 260, radius: 20)),
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  _showLyrics ? '点击返回封面' : '点击封面查看歌词',
+                  style:
+                      const TextStyle(fontSize: 11, color: Color(0xFFB3BECE)),
+                ),
+                const SizedBox(height: 18),
                 Text(
                   s.name,
                   textAlign: TextAlign.center,
@@ -928,6 +999,99 @@ class PlayerPage extends StatelessWidget {
               const SizedBox(height: 8),
             ],
           ),
+        );
+      },
+    );
+  }
+}
+
+// ===================== 歌词视图（随播放进度滚动高亮） =====================
+class _LyricView extends StatefulWidget {
+  final List<LrcLine> lines;
+  final bool loading;
+  const _LyricView({required this.lines, required this.loading});
+
+  @override
+  State<_LyricView> createState() => _LyricViewState();
+}
+
+class _LyricViewState extends State<_LyricView> {
+  final _controller = ScrollController();
+  int _lastIndex = -1;
+  static const double _extent = 44;
+
+  @override
+  void didUpdateWidget(_LyricView old) {
+    super.didUpdateWidget(old);
+    if (old.lines != widget.lines) _lastIndex = -1;
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (widget.loading) {
+      return const Center(
+          child: Text('歌词加载中…', style: TextStyle(color: Color(0xFF9AA7BD))));
+    }
+    if (widget.lines.isEmpty) {
+      return const Center(
+          child: Text('暂无歌词', style: TextStyle(color: Color(0xFF9AA7BD))));
+    }
+    return StreamBuilder<Duration>(
+      stream: AppState.i.player.positionStream,
+      builder: (ctx, snap) {
+        final pos = snap.data ?? Duration.zero;
+        var idx = 0;
+        for (var i = 0; i < widget.lines.length; i++) {
+          if (widget.lines[i].time <= pos) {
+            idx = i;
+          } else {
+            break;
+          }
+        }
+        if (idx != _lastIndex) {
+          _lastIndex = idx;
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (_controller.hasClients) {
+              final target =
+                  (_extent * (idx - 2)).clamp(0.0, _extent * widget.lines.length);
+              _controller.animateTo(target,
+                  duration: const Duration(milliseconds: 400),
+                  curve: Curves.easeOut);
+            }
+          });
+        }
+        return ListView.builder(
+          controller: _controller,
+          itemExtent: _extent,
+          padding: const EdgeInsets.symmetric(vertical: 100),
+          itemCount: widget.lines.length,
+          itemBuilder: (ctx, i) {
+            final active = i == idx;
+            final text =
+                widget.lines[i].text.isEmpty ? '♪' : widget.lines[i].text;
+            return Center(
+              child: Text(
+                text,
+                textAlign: TextAlign.center,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: active ? 17 : 13.5,
+                  height: 1.3,
+                  fontWeight: active ? FontWeight.w800 : FontWeight.w500,
+                  color: active
+                      ? const Color(0xFF3F7CFF)
+                      : const Color(0xFF9AA7BD),
+                ),
+              ),
+            );
+          },
         );
       },
     );

@@ -88,6 +88,25 @@ class MusicApi {
     return null;
   }
 
+  /// 获取歌词（LRC 原文）；失败返回 null
+  static Future<String?> lyric(Song s) async {
+    if (s.id.isEmpty) return null;
+    final uri = Uri.parse(
+        'https://music.163.com/api/song/lyric?id=${s.id}&lv=1&kv=1&tv=-1');
+    try {
+      final resp = await http.get(uri, headers: {
+        'User-Agent': 'Mozilla/5.0',
+        'Referer': 'https://music.163.com/',
+      }).timeout(const Duration(seconds: 10));
+      if (resp.statusCode != 200) return null;
+      final d = jsonDecode(resp.body);
+      if (d is Map && d['lrc'] is Map && d['lrc']['lyric'] is String) {
+        return d['lrc']['lyric'] as String;
+      }
+    } catch (_) {}
+    return null;
+  }
+
   static Future<String> _get(Uri uri) async {
     final resp =
         await http.get(uri).timeout(const Duration(seconds: 12));
